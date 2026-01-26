@@ -37,47 +37,50 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    raw_text = event.message.text.strip()
+    # ユーザーが送った生テキスト
+    raw_text = event.message.text
     
     # 【最強クリーニング】
-    # 空白(全角/半角)をすべて消去し、記号を半角に統一
+    # 1. 前後の空白だけでなく、文字の間の空白（全角・半角）もすべて削除
+    # 2. 記号（コロン・コンマ・読点）を半角に統一
     norm = raw_text.replace(" ", "").replace("　", "").replace("：", ":").replace("，", ",").replace("、", ",")
     
     sheet = get_sheet()
     reply_messages = []
 
-    # 1. お疲れ様（固定）
-    if raw_text == "お疲れ様":
+    # 1. 固定返信（お疲れ様）
+    if raw_text.strip() == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
         reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
 
     # 2. 学習モード（「教える:」で始まるか判定）
     elif norm.startswith("教える:"):
         try:
-            # 「教える:」を消して中身を取り出す
-            content = norm.replace("教える:", "")
+            # 「教える:」の部分を削除
+            content = norm[4:]
             if "," in content:
                 # 最初のコンマ1つだけで分割
                 parts = content.split(",", 1)
                 keyword = parts[0]
                 response = parts[1]
                 
+                # シートへ保存（キーワードはスペースなしの状態で保存）
                 sheet.append_row([keyword, response])
-                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら反応するように覚えたよ！"))
+                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら「{response}」って返すように覚えたよ！"))
             else:
-                reply_messages.append(TextMessage(text="教え方は「教える:言葉,返事」の形で送ってね！"))
+                reply_messages.append(TextMessage(text="「教える:言葉,返事」の形で送ってね！"))
         except:
             reply_messages.append(TextMessage(text="シートに書き込めなかったよ。"))
 
-    # 3. 検索
+    # 3. 検索（登録済みワード）
     else:
         try:
             records = sheet.get_all_records()
             found_res = None
+            # 送られた文字の空白を抜いたもの（norm）でシート内を検索
             for r in records:
-                k = str(r.get('keyword'))
-                # 送られたそのまま、または空白を詰めた文字で一致確認
-                if k == raw_text or k == norm:
+                k = str(r.get('keyword')).replace(" ", "").replace("　", "")
+                if k == norm:
                     found_res = r.get('response')
                     break
             
