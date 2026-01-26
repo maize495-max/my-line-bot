@@ -3,6 +3,7 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
+import random
 
 app = Flask(__name__)
 
@@ -22,20 +23,31 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # ユーザーから送られてきた文字を取得
     text = event.message.text
-    
-    # 返信内容を決める「条件分岐」
-    if text == "おみくじ":
-        import random
-        reply_text = random.choice(["大吉！最高の一日です！", "中吉。ラッキーアイテムは本です。", "小吉。今日はのんびりしよう。"])
-    elif text == "こんにちは":
-        reply_text = "こんにちは！ボットがお返事しています。"
-    else:
-        # それ以外の言葉は今まで通りオウム返し
-        reply_text = text
+    reply_text = ""
 
-    # LINEに返信を送る
+    # --- 返答パターンの設定 ---
+    if text == "おみくじ":
+        results = ["大吉！最高の一日になります✨", "中吉。良いことあるかも！", "小吉。のんびりいきましょう🍵", "末吉。焦らず一歩ずつ。"]
+        reply_text = random.choice(results)
+        
+    elif text in ["こんにちは", "ハロー", "hello"]:
+        reply_text = "こんにちは！お話しできて嬉しいです。"
+        
+    elif text in ["おはよう", "おやすみ"]:
+        reply_text = f"{text}！今日も素敵な日になりますように。"
+        
+    elif text == "名前は？":
+        reply_text = "私はRender上で24時間動いている、あなたの専用ボットです！"
+        
+    elif text == "何ができるの？":
+        reply_text = "「おみくじ」を引いたり、挨拶したりできます。これからもっと勉強します！"
+        
+    else:
+        # 知らない言葉への対応（案内を出すと親切です）
+        reply_text = f"「{text}」だね！まだその言葉はわからないけど、いつか覚えるよ。「おみくじ」って送ってみて！"
+
+    # --- LINEに返信を送る ---
     with ApiClient(conf) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message_with_http_info(
