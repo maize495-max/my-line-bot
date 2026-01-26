@@ -37,77 +37,68 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    original_text = event.message.text.strip()
-    normalized_text = original_text.replace(":", "：")
-    sheet = get_sheet()
+    # 【強化】すべての空白（全角・半角）を取り除き、記号を統一する
+    raw_text = event.message.text.strip()
+    # 判定用に、スペースを消してコロンを統一した文字列を作る
+    normalized_text = raw_text.replace(" ", "").replace("　", "").replace(":", "：")
     
-    # 返信メッセージを格納するリスト
+    sheet = get_sheet()
     reply_messages = []
 
-    # 1. 【固定設定】特定の言葉へのスタンプ返信
-    if original_text == "お疲れ様":
-        # ブラウンの「お疲れ」スタンプ
+    # 1. 特定の言葉へのスタンプ返信
+    if raw_text == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
         reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
 
     # 2. 「教える：」で始まる場合の処理
     elif normalized_text.startswith("教える："):
         try:
+            # 「教える：」を消して、残りを「,」で分割
             content = normalized_text.replace("教える：", "").replace("、", ",")
             parts = content.split(",")
 
             if len(parts) == 2:
-                keyword = parts[0].strip()
-                response = parts[1].strip()
+                keyword = parts[0]
+                response = parts[1]
                 
-                if keyword and response:
-                    sheet.append_row([keyword, response])
-                    reply_messages.append(TextMessage(text=f"「{keyword}」の返し方を覚えたよ！"))
-                else:
-                    reply_messages.append(TextMessage(text="言葉と返事を両方入力してね。"))
+                sheet.append_row([keyword, response])
+                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら反応するように覚えたよ！"))
             else:
-                reply_messages.append(TextMessage(text="教え方は「教える：言葉,返事」の形で送ってね！\nスタンプなら「教える：言葉,STK:パッケージID,スタンプID」だよ。"))
+                reply_messages.append(TextMessage(text="教え方は「教える：言葉,返事」の形で送ってね！"))
         except Exception as e:
-            reply_messages.append(TextMessage(text="登録中にエラーが起きたよ。"))
+            reply_messages.append(TextMessage(text="登録エラーが発生したよ。"))
 
-    # 3. 登録済みの言葉を検索する処理
+    # 3. 登録済みの言葉を検索
     else:
         try:
             records = sheet.get_all_records()
             found_response = None
             for record in records:
-                if str(record.get('keyword')) == original_text:
+                # ユーザーが送ったそのままの文字で検索
+                if str(record.get('keyword')) == raw_text:
                     found_response = record.get('response')
                     break
             
             if found_response:
-                # 【新機能】スタンプ形式（STK:pkg,id）かチェック
                 if found_response.startswith("STK:"):
-                    try:
-                        # "STK:446,1988" のような形式を分解
-                        stk_data = found_response.replace("STK:", "").split(",")
-                        pkg_id = stk_data[0].strip()
-                        stk_id = stk_data[1].strip()
-                        reply_messages.append(StickerMessage(packageId=pkg_id, stickerId=stk_id))
-                    except:
-                        reply_messages.append(TextMessage(text=found_response))
+                    stk_data = found_response.replace("STK:", "").split(",")
+                    reply_messages.append(StickerMessage(packageId=stk_data[0].strip(), stickerId=stk_data[1].strip()))
                 else:
                     reply_messages.append(TextMessage(text=found_response))
             else:
-                # 知らない言葉の場合
-                reply_messages.append(TextMessage(text=f"「{original_text}」はまだ知らないなぁ。教えてくれたら覚えるよ！\n\n【教え方の例】\n教える：テスト,成功\n教える：合格,STK:446,2001"))
+                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えてくれたら覚えるよ！\n\n教える：言葉,返答"))
         
         except Exception as e:
-            reply_messages.append(TextMessage(text="読み込みエラーが発生したよ。"))
+            reply_messages.append(TextMessage(text="読み込みエラーだよ。"))
 
-    # LINEへ返信
+    # 返信
     if reply_messages:
         with ApiClient(conf) as api_client:
             line_bot_api = MessagingApi(api_client)
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=reply_messages[:5] # 最大5件まで
+                    messages=reply_messages[:5]
                 )
             )
 
