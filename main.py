@@ -37,65 +37,72 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # ユーザーが送ったそのままの文字
+    # 送信されたそのままのテキスト
     raw_text = event.message.text.strip()
     
-    # 【究極のゆらぎ吸収】記号をすべて半角に統一し、スペースを消す
-    norm = raw_text.replace("：", ":").replace("，", ",").replace("、", ",").replace("　", "").replace(" ", "")
+    # 【改良】判定用に、記号の全角半角や空白をすべて整える
+    # コロンを半角に、コンマ類を半角に、空白をすべて削除
+    norm = raw_text.replace("：", ":").replace("，", ",").replace("、", ",").replace(" ", "").replace("　", "")
     
     sheet = get_sheet()
     reply_messages = []
 
-    # 1. 固定の返信（お疲れ様）
+    # 1. 固定返信：お疲れ様（文字が完全一致したとき）
     if raw_text == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
         reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
 
-    # 2. 「教える:」で始まる場合
+    # 2. 学習モード：教える（整えた文字が「教える:」で始まるとき）
     elif norm.startswith("教える:"):
         try:
-            # 「教える:」の部分をカット
-            content = norm[4:] 
+            # 「教える:」の4文字目以降を取り出す
+            content = norm[4:]
             
-            # 最初のコンマ1つだけで分割
+            # 最初の1つ目のコンマだけで分割（スタンプIDのコンマと混ざらないように）
             if "," in content:
                 parts = content.split(",", 1)
-                keyword = parts[0]
-                response = parts[1]
+                keyword = parts[0].strip()
+                response = parts[1].strip()
                 
                 if keyword and response:
                     sheet.append_row([keyword, response])
-                    reply_messages.append(TextMessage(text=f"「{keyword}」の返し方を覚えたよ！"))
+                    reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら「{response}」って返すように覚えたよ！"))
                 else:
-                    reply_messages.append(TextMessage(text="言葉と返事を入力してね。"))
+                    reply_messages.append(TextMessage(text="教え方が正しくないみたい。もう一度確認してね。"))
             else:
-                reply_messages.append(TextMessage(text="教え方は「教える:言葉,返事」だよ！"))
+                reply_messages.append(TextMessage(text="「教える:言葉,返事」の形で送ってね！"))
         except:
-            reply_messages.append(TextMessage(text="登録エラーだよ。"))
+            reply_messages.append(TextMessage(text="スプレッドシートへの登録でエラーが起きたよ。"))
 
-    # 3. 検索
+    # 3. 登録済みワードの検索
     else:
         try:
             records = sheet.get_all_records()
             found_res = None
             for r in records:
+                # スプレッドシートのkeyword列と入力文字が一致するか
                 if str(r.get('keyword')) == raw_text:
                     found_res = r.get('response')
                     break
             
             if found_res:
+                # 返事が「STK:」で始まっていればスタンプとして送信
                 if found_res.startswith("STK:"):
-                    # スタンプID内のコンマも半角に統一して分解
-                    stk = found_res.replace("，", ",").replace("STK:", "").split(",")
-                    reply_messages.append(StickerMessage(packageId=stk[0].strip(), stickerId=stk[1].strip()))
+                    try:
+                        # STK:の後をコンマで分けてパッケージIDとスタンプIDを取得
+                        stk_data = found_res.replace("STK:", "").replace("，", ",").split(",")
+                        reply_messages.append(StickerMessage(packageId=stk_data[0].strip(), stickerId=stk_data[1].strip()))
+                    except:
+                        reply_messages.append(TextMessage(text=found_res))
                 else:
                     reply_messages.append(TextMessage(text=found_res))
             else:
-                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えて！"))
+                # 何も知らない場合
+                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。\n教える:言葉,返事\nの形で教えてね！"))
         except:
-            reply_messages.append(TextMessage(text="読み込みエラーだよ。"))
+            reply_messages.append(TextMessage(text="スプレッドシートの読み込みエラーだよ。"))
 
-    # 返信実行
+    # LINEへ返信
     if reply_messages:
         with ApiClient(conf) as api_client:
             line_bot_api = MessagingApi(api_client)
