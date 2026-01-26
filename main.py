@@ -37,9 +37,8 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # 【強化】すべての空白（全角・半角）を取り除き、記号を統一する
+    # すべての空白を削除し、コロンを全角に統一
     raw_text = event.message.text.strip()
-    # 判定用に、スペースを消してコロンを統一した文字列を作る
     normalized_text = raw_text.replace(" ", "").replace("　", "").replace(":", "：")
     
     sheet = get_sheet()
@@ -53,20 +52,24 @@ def handle_message(event):
     # 2. 「教える：」で始まる場合の処理
     elif normalized_text.startswith("教える："):
         try:
-            # 「教える：」を消して、残りを「,」で分割
+            # 「教える：」を取り除く
             content = normalized_text.replace("教える：", "").replace("、", ",")
-            parts = content.split(",")
-
-            if len(parts) == 2:
-                keyword = parts[0]
-                response = parts[1]
+            
+            # 【重要修正】最初のカンマ「1つだけ」で分割する
+            if "," in content:
+                parts = content.split(",", 1) # ここで「1回だけ分割」と指定
+                keyword = parts[0].strip()
+                response = parts[1].strip()
                 
-                sheet.append_row([keyword, response])
-                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら反応するように覚えたよ！"))
+                if keyword and response:
+                    sheet.append_row([keyword, response])
+                    reply_messages.append(TextMessage(text=f"「{keyword}」の返し方を覚えたよ！"))
+                else:
+                    reply_messages.append(TextMessage(text="言葉と返事を正しく入力してね。"))
             else:
-                reply_messages.append(TextMessage(text="教え方は「教える：言葉,返事」の形で送ってね！"))
+                reply_messages.append(TextMessage(text="教え方は「教える：言葉,返事」の形で送ってね！\nスタンプなら「教える：言葉,STK:パッケージID,スタンプID」だよ。"))
         except Exception as e:
-            reply_messages.append(TextMessage(text="登録エラーが発生したよ。"))
+            reply_messages.append(TextMessage(text="登録中にエラーが起きたよ。"))
 
     # 3. 登録済みの言葉を検索
     else:
@@ -74,22 +77,25 @@ def handle_message(event):
             records = sheet.get_all_records()
             found_response = None
             for record in records:
-                # ユーザーが送ったそのままの文字で検索
                 if str(record.get('keyword')) == raw_text:
                     found_response = record.get('response')
                     break
             
             if found_response:
+                # スタンプ形式かチェック
                 if found_response.startswith("STK:"):
-                    stk_data = found_response.replace("STK:", "").split(",")
-                    reply_messages.append(StickerMessage(packageId=stk_data[0].strip(), stickerId=stk_data[1].strip()))
+                    try:
+                        stk_data = found_response.replace("STK:", "").split(",")
+                        reply_messages.append(StickerMessage(packageId=stk_data[0].strip(), stickerId=stk_data[1].strip()))
+                    except:
+                        reply_messages.append(TextMessage(text=found_response))
                 else:
                     reply_messages.append(TextMessage(text=found_response))
             else:
-                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えてくれたら覚えるよ！\n\n教える：言葉,返答"))
+                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教える：言葉,返答 で教えてね！"))
         
         except Exception as e:
-            reply_messages.append(TextMessage(text="読み込みエラーだよ。"))
+            reply_messages.append(TextMessage(text="スプレッドシートの読み込みエラーだよ。"))
 
     # 返信
     if reply_messages:
