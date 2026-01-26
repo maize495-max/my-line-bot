@@ -11,15 +11,18 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 app = Flask(__name__)
 
 # LINE設定
-# アクセストークンとチャンネルシークレットは以前のものを維持しています
+# 415.jpgに写っていたあなたの正しいトークンとシークレットです
 conf = Configuration(access_token='yjobhTbQspZH6F/2Wq7xM7o23JbauiKXlrPNWI8Xm2grwm6i/jBriYvklRiywVMfpNrri9XrlkiAM9/cgzO+6V/PHR91sR+XNH4qx43Oo9VdKWheclWG7B85uiEoNPZhAzU3LXUa4xOLCk9tI0C2RQdB04t89/1O/w1cDnyilFU=')
 handler = WebhookHandler('bef8d0e0dfa3395715dead2aaecc450e')
 
 # スプレッドシート設定
 def get_sheet():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    # Renderの環境変数(GOOGLE_SHEETS_JSON)から鍵を読み込みます
+    # Renderの環境変数から鍵(JSON)を読み込みます
     json_str = os.environ.get('GOOGLE_SHEETS_JSON')
+    if not json_str:
+        raise ValueError("環境変数 GOOGLE_SHEETS_JSON が設定されていません")
+    
     json_data = json.loads(json_str)
     credentials = Credentials.from_service_account_info(json_data, scopes=scopes)
     gc = gspread.authorize(credentials)
@@ -42,14 +45,14 @@ def handle_message(event):
     sheet = get_sheet()
     reply_text = ""
 
-    # 学習コマンドの判定：「教える：キーワード,返事」
+    # 「教える：」で始まる場合の処理
     if text.startswith("教える："):
         try:
-            # 「教える：」を取り除いて、カンマで分割
+            # 「教える：」を消して、カンマか全角カンマで分割
             content = text.replace("教える：", "")
             if "," in content:
                 parts = content.split(",")
-            elif "、" in content: # 全角カンマにも対応
+            elif "、" in content:
                 parts = content.split("、")
             else:
                 parts = []
@@ -57,25 +60,25 @@ def handle_message(event):
             if len(parts) == 2:
                 keyword = parts[0].strip()
                 response = parts[1].strip()
-                # スプレッドシートの末尾に行を追加
+                # シートの最後に行を追加
                 sheet.append_row([keyword, response])
                 reply_text = f"「{keyword}」って言われたら「{response}」って答えるように覚えたよ！"
             else:
                 reply_text = "教え方は「教える：言葉,返事」って送ってね！"
         except Exception as e:
-            reply_text = "覚えるのに失敗しちゃった。スプレッドシートの共有設定を確認してみて！"
+            reply_text = f"エラー：{str(e)}\nスプレッドシートの共有設定を確認してね！"
     
     else:
-        # スプレッドシートからすべてのデータを取得して言葉を検索
+        # スプレッドシートから言葉を検索
         records = sheet.get_all_records()
         for record in records:
-            if record['keyword'] == text:
-                reply_text = record['response']
+            if record.get('keyword') == text:
+                reply_text = record.get('response')
                 break
         
-        # 見つからない場合のデフォルト返答
+        # 見つからなかった場合
         if not reply_text:
-            reply_text = f"「{text}」はまだ知らないなぁ。「教える：{text},（返答）」って送って教えてくれたら覚えるよ！"
+            reply_text = f"「{text}」はまだ知らないなぁ。「教える：{text},（返事）」って送ってくれたら覚えるよ！"
 
     with ApiClient(conf) as api_client:
         line_bot_api = MessagingApi(api_client)
