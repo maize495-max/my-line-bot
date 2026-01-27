@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import gspread
 from flask import Flask, request, abort
 from google.oauth2.service_account import Credentials
