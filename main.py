@@ -1,111 +1,189 @@
 import os
 import json
 import gspread
-from google.oauth2.service_account import Credentials
 from flask import Flask, request, abort
+from google.oauth2.service_account import Credentials
+
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage, StickerMessage
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    TextMessage,
+    StickerMessage,
+)
+from linebot.v3.webhooks import (
+    MessageEvent,
+    TextMessageContent,
+    StickerMessageContent,
+)
 
 app = Flask(__name__)
 
-# --- LINE設定 ---
-conf = Configuration(access_token='yjobhTbQspZH6F/2Wq7xM7o23JbauiKXlrPNWI8Xm2grwm6i/jBriYvklRiywVMfpNrri9XrlkiAM9/cgzO+6V/PHR91sR+XNH4qx43Oo9VdKWheclWG7B85uiEoNPZhAzU3LXUa4xOLCk9tI0C2RQdB04t89/1O/w1cDnyilFU=')
-handler = WebhookHandler('bef8d0e0dfa3395715dead2aaecc450e')
+# =========================
+# LINE設定
+# =========================
+conf = Configuration(
+    access_token=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+)
+handler = WebhookHandler(
+    os.environ.get("LINE_CHANNEL_SECRET")
+)
 
-# --- スプレッドシート設定 ---
+# =========================
+# Google Sheets
+# =========================
 def get_sheet():
-    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    json_str = os.environ.get('GOOGLE_SHEETS_JSON')
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    json_str = os.environ.get("GOOGLE_SHEETS_JSON")
     if not json_str:
-        raise ValueError("環境変数 GOOGLE_SHEETS_JSON が未設定です")
-    json_data = json.loads(json_str)
-    credentials = Credentials.from_service_account_info(json_data, scopes=scopes)
-    gc = gspread.authorize(credentials)
-    return gc.open('line_bot_memory').sheet1
+        raise ValueError("GOOGLE_SHEETS_JSON 未設定")
 
-@app.route("/callback", methods=['POST'])
+    credentials = Credentials.from_service_account_info(
+        json.loads(json_str), scopes=scopes
+    )
+    gc = gspread.authorize(credentials)
+    return gc.open("line_bot_memory").sheet1
+
+
+# =========================
+# Webhook
+# =========================
+@app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get('X-Line-Signature')
+    signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    return 'OK'
 
+    return "OK"
+
+
+# =========================
+# テキスト受信
+# =========================
 @handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
-    # ユーザーが送ったそのままのテキスト
+def handle_text(event):
     raw_text = event.message.text
-    
-    # 【最強クリーニング】
-    # 1. すべての空白（全角・半角）を文字の間も含めてすべて削除
-    # 2. 記号（コロン・コンマ・読点）を半角に統一
-    norm = raw_text.replace(" ", "").replace("　", "").replace("：", ":").replace("，", ",").replace("、", ",")
-    
+    norm = (
+        raw_text.replace(" ", "")
+        .replace("　", "")
+        .replace("：", ":")
+        .replace("，", ",")
+        .replace("、", ",")
+    )
+
     sheet = get_sheet()
-    reply_messages = []
+    replies = []
 
-    # 1. 固定返信（お疲れ様）
-    # 空白を抜いた状態で比較するので「お 疲れ 様」でも反応します
+    # 固定返信
     if norm == "お疲れ様":
-        reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
-        reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
+        replies.append(StickerMessage(packageId=446, stickerId=1989))
+        replies.append(TextMessage(text="今日もお疲れ様！"))
 
-    # 2. 学習モード（「教える:」で始まるか判定）
+    # 学習トリガー
     elif norm.startswith("教える:"):
-        try:
-            # 「教える:」の4文字目以降を取り出す
-            content = norm[4:]
-            if "," in content:
-                # 最初のコンマ1つだけで分割
-                parts = content.split(",", 1)
-                keyword = parts[0]
-                response = parts[1]
-                
-                # キーワードは空白なしの状態で保存
-                sheet.append_row([keyword, response])
-                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら反応するように覚えたよ！"))
-            else:
-                reply_messages.append(TextMessage(text="「教える:言葉,返事」の形で送ってね！"))
-        except:
-            reply_messages.append(TextMessage(text="シートに書き込めなかったよ。"))
-
-    # 3. 検索（登録済みワード）
-    else:
-        try:
-            records = sheet.get_all_records()
-            found_res = None
-            # 送られた文字の空白を抜いたもの（norm）で検索
-            for r in records:
-                # シート側のキーワードも空白を抜いて比較する徹底ぶり
-                k = str(r.get('keyword')).replace(" ", "").replace("　", "")
-                if k == norm:
-                    found_res = r.get('response')
-                    break
-            
-            if found_res:
-                if found_res.startswith("STK:"):
-                    # STK:パッケージID,スタンプID 形式を分解
-                    # ここでもコンマの打ち間違いをケア
-                    stk = found_res.replace("STK:", "").replace("，", ",").split(",")
-                    reply_messages.append(StickerMessage(packageId=stk[0].strip(), stickerId=stk[1].strip()))
-                else:
-                    reply_messages.append(TextMessage(text=found_res))
-            else:
-                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えて！"))
-        except:
-            reply_messages.append(TextMessage(text="読み込みエラーだよ。"))
-
-    if reply_messages:
-        with ApiClient(conf) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=reply_messages[:5])
+        keyword = norm.replace("教える:", "")
+        if keyword:
+            # 学習待ち状態を保存
+            sheet.append_row([f"__WAIT__{event.source.user_id}", keyword])
+            replies.append(
+                TextMessage(text="OK！次に覚えさせたいスタンプを送ってね 👍")
+            )
+        else:
+            replies.append(
+                TextMessage(text="教える:キーワード の形で送ってね")
             )
 
+    # 検索
+    else:
+        records = sheet.get_all_records()
+        found = None
+        for r in records:
+            k = str(r["keyword"]).replace(" ", "").replace("　", "")
+            if k == norm:
+                found = r["response"]
+                break
+
+        if found:
+            if found.startswith("STK:"):
+                _, pkg, stk = found.split(":")[0], *found.replace("STK:", "").split(",")
+                replies.append(
+                    StickerMessage(
+                        packageId=int(pkg.strip()),
+                        stickerId=int(stk.strip()),
+                    )
+                )
+            else:
+                replies.append(TextMessage(text=found))
+        else:
+            replies.append(TextMessage(text="まだ知らないな〜 教えて？"))
+
+    send_reply(event.reply_token, replies)
+
+
+# =========================
+# スタンプ受信（学習用）
+# =========================
+@handler.add(MessageEvent, message=StickerMessageContent)
+def handle_sticker(event):
+    sheet = get_sheet()
+    records = sheet.get_all_records()
+
+    wait_key = f"__WAIT__{event.source.user_id}"
+    keyword = None
+    row_index = None
+
+    for i, r in enumerate(records, start=2):
+        if r["keyword"] == wait_key:
+            keyword = r["response"]
+            row_index = i
+            break
+
+    if not keyword:
+        return
+
+    package_id = event.message.package_id
+    sticker_id = event.message.sticker_id
+
+    # 学習内容を書き換え
+    sheet.update(f"A{row_index}", keyword)
+    sheet.update(f"B{row_index}", f"STK:{package_id},{sticker_id}")
+
+    send_reply(
+        event.reply_token,
+        [
+            TextMessage(
+                text=f"「{keyword}」にスタンプを覚えたよ！"
+            )
+        ],
+    )
+
+
+# =========================
+# 返信共通処理
+# =========================
+def send_reply(token, messages):
+    with ApiClient(conf) as api_client:
+        MessagingApi(api_client).reply_message(
+            ReplyMessageRequest(
+                reply_token=token,
+                messages=messages[:5],
+            )
+        )
+
+
+# =========================
+# 起動
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
