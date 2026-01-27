@@ -20,6 +20,8 @@ from linebot.v3.webhooks import (
     TextMessageContent,
     StickerMessageContent,
 )
+import logging
+logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 
