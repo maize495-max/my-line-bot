@@ -135,7 +135,7 @@ def handle_text(event):
                         )
                     )
                 except Exception as e:
-                    print("STICKER PARSE ERROR:", e)
+                    print("DEBUG: sticker received", flush=True)
                     replies.append(TextMessage(text="スタンプの読み込みに失敗したよ"))
             else:
                 replies.append(TextMessage(text=found))
