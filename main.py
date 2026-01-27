@@ -37,74 +37,53 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # ユーザーが送ったそのままのテキスト
     raw_text = event.message.text
-    
-    # 【最強クリーニング】
-    # 1. すべての空白（全角・半角）を文字の間も含めてすべて削除
-    # 2. 記号（コロン・コンマ・読点）を半角に統一
+    # 【最強クリーニング】すべての空白を消し、記号を半角に統一
     norm = raw_text.replace(" ", "").replace("　", "").replace("：", ":").replace("，", ",").replace("、", ",")
     
     sheet = get_sheet()
     reply_messages = []
 
-    # 1. 固定返信（お疲れ様）
-    # 空白を抜いた状態で比較するので「お 疲れ 様」でも反応します
     if norm == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
         reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
-
-    # 2. 学習モード（「教える:」で始まるか判定）
     elif norm.startswith("教える:"):
         try:
-            # 「教える:」の4文字目以降を取り出す
             content = norm[4:]
             if "," in content:
-                # 最初のコンマ1つだけで分割
                 parts = content.split(",", 1)
                 keyword = parts[0]
                 response = parts[1]
-                
-                # キーワードは空白なしの状態で保存
                 sheet.append_row([keyword, response])
-                reply_messages.append(TextMessage(text=f"「{keyword}」って言われたら反応するように覚えたよ！"))
+                reply_messages.append(TextMessage(text=f"「{keyword}」の返し方を覚えたよ！"))
             else:
-                reply_messages.append(TextMessage(text="「教える:言葉,返事」の形で送ってね！"))
+                reply_messages.append(TextMessage(text="教え方は「教える:言葉,返事」だよ！"))
         except:
-            reply_messages.append(TextMessage(text="シートに書き込めなかったよ。"))
-
-    # 3. 検索（登録済みワード）
+            reply_messages.append(TextMessage(text="登録エラー。"))
     else:
         try:
             records = sheet.get_all_records()
             found_res = None
-            # 送られた文字の空白を抜いたもの（norm）で検索
             for r in records:
-                # シート側のキーワードも空白を抜いて比較する徹底ぶり
                 k = str(r.get('keyword')).replace(" ", "").replace("　", "")
                 if k == norm:
                     found_res = r.get('response')
                     break
-            
             if found_res:
                 if found_res.startswith("STK:"):
-                    # STK:パッケージID,スタンプID 形式を分解
-                    # ここでもコンマの打ち間違いをケア
                     stk = found_res.replace("STK:", "").replace("，", ",").split(",")
                     reply_messages.append(StickerMessage(packageId=stk[0].strip(), stickerId=stk[1].strip()))
                 else:
                     reply_messages.append(TextMessage(text=found_res))
             else:
-                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えて！"))
+                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。"))
         except:
-            reply_messages.append(TextMessage(text="読み込みエラーだよ。"))
+            reply_messages.append(TextMessage(text="読み込みエラー。"))
 
     if reply_messages:
         with ApiClient(conf) as api_client:
             line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=reply_messages[:5])
-            )
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=reply_messages[:5]))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
