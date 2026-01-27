@@ -23,7 +23,7 @@ from linebot.v3.webhooks import (
 app = Flask(__name__)
 
 # =========================
-# LINE設定
+# LINE設定（環境変数）
 # =========================
 conf = Configuration(
     access_token=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -42,7 +42,7 @@ def get_sheet():
     ]
     json_str = os.environ.get("GOOGLE_SHEETS_JSON")
     if not json_str:
-        raise ValueError("GOOGLE_SHEETS_JSON 未設定")
+        raise ValueError("GOOGLE_SHEETS_JSON が未設定")
 
     credentials = Credentials.from_service_account_info(
         json.loads(json_str), scopes=scopes
@@ -73,6 +73,8 @@ def callback():
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
     raw_text = event.message.text
+
+    # 正規化（全角・半角対策）
     norm = (
         raw_text.replace(" ", "")
         .replace("　", "")
@@ -84,29 +86,38 @@ def handle_text(event):
     sheet = get_sheet()
     replies = []
 
-    # 固定返信
+    # ---- 固定返信テスト（スタンプ）----
     if norm == "お疲れ様":
-        replies.append(StickerMessage(packageId=446, stickerId=1989))
+        replies.append(
+            StickerMessage(
+                package_id=446,
+                sticker_id=1989
+            )
+        )
         replies.append(TextMessage(text="今日もお疲れ様！"))
 
-    # 学習トリガー
+    # ---- 学習トリガー ----
     elif norm.startswith("教える:"):
         keyword = norm.replace("教える:", "")
         if keyword:
-            # 学習待ち状態を保存
-            sheet.append_row([f"__WAIT__{event.source.user_id}", keyword])
+            sheet.append_row(
+                [f"__WAIT__{event.source.user_id}", keyword]
+            )
             replies.append(
-                TextMessage(text="OK！次に覚えさせたいスタンプを送ってね 👍")
+                TextMessage(
+                    text="OK！次に覚えさせたいスタンプを送ってね 👍"
+                )
             )
         else:
             replies.append(
                 TextMessage(text="教える:キーワード の形で送ってね")
             )
 
-    # 検索
+    # ---- 通常検索 ----
     else:
         records = sheet.get_all_records()
         found = None
+
         for r in records:
             k = str(r["keyword"]).replace(" ", "").replace("　", "")
             if k == norm:
@@ -115,17 +126,23 @@ def handle_text(event):
 
         if found:
             if found.startswith("STK:"):
-                _, pkg, stk = found.split(":")[0], *found.replace("STK:", "").split(",")
-                replies.append(
-                    StickerMessage(
-                        packageId=int(pkg.strip()),
-                        stickerId=int(stk.strip()),
+                try:
+                    pkg, stk = found.replace("STK:", "").split(",")
+                    replies.append(
+                        StickerMessage(
+                            package_id=int(pkg.strip()),
+                            sticker_id=int(stk.strip()),
+                        )
                     )
-                )
+                except Exception as e:
+                    print("STICKER PARSE ERROR:", e)
+                    replies.append(TextMessage(text="スタンプの読み込みに失敗したよ"))
             else:
                 replies.append(TextMessage(text=found))
         else:
-            replies.append(TextMessage(text="まだ知らないな〜 教えて？"))
+            replies.append(
+                TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。教えて！")
+            )
 
     send_reply(event.reply_token, replies)
 
@@ -148,13 +165,16 @@ def handle_sticker(event):
             row_index = i
             break
 
+    # 学習待ちでなければ何もしない
     if not keyword:
         return
 
     package_id = event.message.package_id
     sticker_id = event.message.sticker_id
 
-    # 学習内容を書き換え
+    print("LEARN STICKER:", keyword, package_id, sticker_id)
+
+    # 学習内容を確定
     sheet.update(f"A{row_index}", keyword)
     sheet.update(f"B{row_index}", f"STK:{package_id},{sticker_id}")
 
@@ -169,7 +189,7 @@ def handle_sticker(event):
 
 
 # =========================
-# 返信共通処理
+# 共通返信処理
 # =========================
 def send_reply(token, messages):
     with ApiClient(conf) as api_client:
