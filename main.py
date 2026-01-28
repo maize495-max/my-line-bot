@@ -37,15 +37,11 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # --- 【重要】ID特定モード ---
-    # ここはまだ書き換えなくてOKです。まずIDを知る必要があります。
-    MY_USER_ID = 'rennya2023' 
+    # --- あなたのIDをセット完了 ---
+    MY_USER_ID = 'Ue73f49f79aea1e07aebed5bb27ae27b0' 
     
-    user_id = event.source.user_id # 送信者の本当のID
+    user_id = event.source.user_id 
     raw_text = event.message.text
-    
-    # IDを特定するために、返信の頭にIDをくっつけます
-    display_text = f"【あなたのID: {user_id}】\n{raw_text}"
     
     # 【最強クリーニング】
     norm = raw_text.replace(" ", "").replace("　", "").replace("：", ":").replace("，", ",").replace("、", ",")
@@ -56,7 +52,7 @@ def handle_message(event):
     # 判定ロジック
     if norm == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
-        reply_messages.append(TextMessage(text=f"{display_text}\n今日もお疲れ様！ゆっくり休んでね。"))
+        reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
     elif norm.startswith("教える:"):
         try:
             content = norm[4:]
@@ -65,9 +61,9 @@ def handle_message(event):
                 keyword = parts[0]
                 response = parts[1]
                 sheet.append_row([keyword, response])
-                reply_messages.append(TextMessage(text=f"{display_text}\n「{keyword}」の返し方を覚えたよ！"))
+                reply_messages.append(TextMessage(text=f"「{keyword}」の返し方を覚えたよ！"))
             else:
-                reply_messages.append(TextMessage(text=f"{display_text}\n教え方は「教える:言葉,返事」だよ！"))
+                reply_messages.append(TextMessage(text="教え方は「教える:言葉,返事」だよ！"))
         except:
             reply_messages.append(TextMessage(text="登録エラー。"))
     else:
@@ -83,11 +79,10 @@ def handle_message(event):
                 if found_res.startswith("STK:"):
                     stk = found_res.replace("STK:", "").replace("，", ",").split(",")
                     reply_messages.append(StickerMessage(packageId=stk[0].strip(), stickerId=stk[1].strip()))
-                    reply_messages.append(TextMessage(text=f"ID: {user_id}"))
                 else:
-                    reply_messages.append(TextMessage(text=f"{display_text}\n{found_res}"))
+                    reply_messages.append(TextMessage(text=found_res))
             else:
-                reply_messages.append(TextMessage(text=f"{display_text}\n「{raw_text}」はまだ知らないなぁ。"))
+                reply_messages.append(TextMessage(text=f"「{raw_text}」はまだ知らないなぁ。"))
         except:
             reply_messages.append(TextMessage(text="読み込みエラー。"))
 
@@ -102,8 +97,8 @@ def handle_message(event):
                 messages=reply_messages[:5]
             ))
         
-        # 2. あなたへの通知（IDが正しく設定されるまで、まだ動きません）
-        if user_id != MY_USER_ID and MY_USER_ID != 'rennya2023':
+        # 2. あなたへの通知（送信者があなた自身でない場合のみ通知）
+        if user_id != MY_USER_ID:
             notice_text = f"【通知】メッセージが届きました\n内容: {raw_text}\nユーザーID: {user_id}"
             line_bot_api.push_message(PushMessageRequest(
                 to=MY_USER_ID,
