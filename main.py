@@ -39,7 +39,7 @@ def callback():
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     # --- 【重要】ここにあなたのIDを入れます ---
-    MY_USER_ID = 'YOUR_USER_ID_HERE' 
+    MY_USER_ID = 'rennya2023' 
     
     raw_text = event.message.text
     user_id = event.source.user_id # 送信者のID
