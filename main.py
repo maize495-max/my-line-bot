@@ -5,7 +5,8 @@ from google.oauth2.service_account import Credentials
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage, StickerMessage
+# --- PushMessageRequest を追加 ---
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage, StickerMessage, PushMessageRequest
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 app = Flask(__name__)
@@ -37,13 +38,19 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
+    # --- 【重要】ここにあなたのIDを入れます ---
+    MY_USER_ID = 'YOUR_USER_ID_HERE' 
+    
     raw_text = event.message.text
-    # 【最強クリーニング】すべての空白を消し、記号を半角に統一
+    user_id = event.source.user_id # 送信者のID
+    
+    # 【最強クリーニング】
     norm = raw_text.replace(" ", "").replace("　", "").replace("：", ":").replace("，", ",").replace("、", ",")
     
     sheet = get_sheet()
     reply_messages = []
 
+    # 判定ロジック
     if norm == "お疲れ様":
         reply_messages.append(StickerMessage(packageId="446", stickerId="1989"))
         reply_messages.append(TextMessage(text="今日もお疲れ様！ゆっくり休んでね。"))
@@ -80,10 +87,24 @@ def handle_message(event):
         except:
             reply_messages.append(TextMessage(text="読み込みエラー。"))
 
-    if reply_messages:
-        with ApiClient(conf) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=reply_messages[:5]))
+    # 送信処理
+    with ApiClient(conf) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        
+        # 1. 相手への返信
+        if reply_messages:
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, 
+                messages=reply_messages[:5]
+            ))
+        
+        # 2. あなたへの通知（送信者があなた自身でない場合のみ）
+        if user_id != MY_USER_ID:
+            notice_text = f"【通知】メッセージが届きました\n内容: {raw_text}\nユーザーID: {user_id}"
+            line_bot_api.push_message(PushMessageRequest(
+                to=MY_USER_ID,
+                messages=[TextMessage(text=notice_text)]
+            ))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
