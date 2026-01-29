@@ -1,5 +1,5 @@
 flask
 line-bot-sdk
-gspread
-google-auth
+google-generativeai
+psn-api
 gunicorn
