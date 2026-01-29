@@ -1,26 +1,26 @@
 import os
-from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage
 import google.generativeai as genai
+from flask import Flask, request, abort
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 app = Flask(__name__)
 
-# --- 🔑 設定（自分のキーを貼り付けてください） ---
-LINE_CHANNEL_ACCESS_TOKEN = 'yjobhTbQspZH6F/2Wq7xM7o23JbauiKXlrPNWI8Xm2grwm6i/jBriYvklRiywVMfpNrri9XrlkiAM9/cgzO+6V/PHR91sR+XNH4qx43Oo9VdKWheclWG7B85uiEoNPZhAzU3LXUa4xOLCk9tI0C2RQdB04t89/1O/w1cDnyilFU='
-LINE_CHANNEL_SECRET = 'bef8d0e0dfa3395715dead2aaecc450e'
-genai.configure(api_key="AIzaSyCxqkSRDntWhFMCKJuS6IbkMzyd5gZNP5A")
+# LINE設定
+conf = Configuration(access_token='yjobhTbQspZH6F/2Wq7xM7o23JbauiKXlrPNWI8Xm2grwm6i/jBriYvklRiywVMfpNrri9XrlkiAM9/cgzO+6V/PHR91sR+XNH4qx43Oo9VdKWheclWG7B85uiEoNPZhAzU3LXUa4xOLCk9tI0C2RQdB04t89/1O/w1cDnyilFU=')
+handler = WebhookHandler('bef8d0e0dfa3395715dead2aaecc450e')
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
+# Gemini設定
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# --- 🧠 AIのモデル設定（画像認識ができる1.5-flashを使用） ---
-model = genai.GenerativeModel('gemini-1.5-flash')
+# ★制限回避用の「Lite」モデル
+model = genai.GenerativeModel("models/gemini-2.5-flash-lite")
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
@@ -28,27 +28,26 @@ def callback():
         abort(400)
     return 'OK'
 
-# 🖼️ 画像を受け取った時の処理
-@handler.add(MessageEvent, message=ImageMessage)
-def handle_image_message(event):
-    # 1. LINEのサーバーから画像バイナリを取得
-    message_content = line_bot_api.get_message_content(event.message.id)
-    image_data = b""
-    for chunk in message_content.iter_content():
-        image_data += chunk
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+    try:
+        # ボットの性格付け
+        prompt = f"あなたは親しみやすい友達のようなAIです。30文字以内で短く返事をして。ユーザー: {event.message.text}"
+        
+        # Geminiに生成させる
+        response = model.generate_content(prompt)
+        reply_text = response.text.strip()
+        
+    except Exception as e:
+        reply_text = f"エラー: {str(e)}"
 
-    # 2. Geminiに画像を渡して解析
-    # 「この画像は何？」という質問と一緒に画像データを送ります
-    response = model.generate_content([
-        "この画像には何が写っていますか？日本語で詳しく説明してください。",
-        {"mime_type": "image/jpeg", "data": image_data}
-    ])
-
-    # 3. 解析結果をLINEで返信
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=response.text)
-    )
+    with ApiClient(conf) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message(ReplyMessageRequest(
+            reply_token=event.reply_token, 
+            messages=[TextMessage(text=reply_text)]
+        )) # ←ここが重要！カッコが閉じているか確認してください
 
 if __name__ == "__main__":
-    app.run()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
